@@ -1,0 +1,368 @@
+Initialize a Node.js Project
+
+bash
+
+mkdir chat-app
+cd chat-app
+npm init -y
+npm install express socket.io
+Create server.js
+
+javascript
+
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// Serve the static files (frontend)
+app.use(express.static(__dirname + '/public'));
+
+// Socket.IO connection
+io.on('connection', (socket) => {
+    console.log('A user connected');
+
+    // Listen for incoming messages
+    socket.on('chat message', (msg) => {
+        io.emit('chat message', msg);
+    });
+
+    // Handle user disconnect
+    socket.on('disconnect', () => {
+        console.log('A user disconnected');
+    });
+});
+
+// Start the server
+server.listen(3000, () => {
+    console.log('Server is running on http://localhost:3000');
+});
+Frontend (HTML/CSS/JavaScript)
+Create a public folder and an index.html file inside it
+
+html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Chat App</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #messages { list-style-type: none; padding: 0; }
+        #messages li { padding: 8px; margin-bottom: 4px; background-color: #f1f1f1; border-radius: 4px; }
+        #form { display: flex; }
+        #input { flex: 1; padding: 10px; }
+        #button { padding: 10px; }
+    </style>
+</head>
+<body>
+    <ul id="messages"></ul>
+    <form id="form" action="">
+        <input id="input" autocomplete="off" placeholder="Type a message..." /><button id="button">Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // Form submission
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (input.value) {
+                socket.emit('chat message', input.value);
+                input.value = '';
+            }
+        });
+
+        // Append messages to the list
+        socket.on('chat message', function(msg) {
+            const item = document.createElement('li');
+            item.textContent = msg;
+            document.getElementById('messages').appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+    </script>
+</body>
+</html>
+Running the Application
+Start the server
+
+bash
+
+node server.js
+Update server.js for User Authentication
+
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { check, validationResult } = require('express-validator');
+
+// Connect to MongoDB
+mongoose.connect('mongodb://localhost/chat-app', { useNewUrlParser: true, useUnifiedTopology: true });
+
+// User Schema and Model
+const UserSchema = new mongoose.Schema({
+    username: { type: String, unique: true },
+    password: String,
+});
+
+const User = mongoose.model('User', UserSchema);
+
+// Message Schema and Model
+const MessageSchema = new mongoose.Schema({
+    username: String,
+    message: String,
+    timestamp: { type: Date, default: Date.now },
+});
+
+const Message = mongoose.model('Message', MessageSchema);
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+app.use(express.json());
+app.use(express.static(__dirname + '/public'));
+
+// Register User
+app.post('/register', [
+    check('username', 'Username is required').not().isEmpty(),
+    check('password', 'Password is required').not().isEmpty(),
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { username, password } = req.body;
+    try {
+        let user = await User.findOne({ username });
+        if (user) {
+            return res.status(400).json({ msg: 'User already exists' });
+        }
+
+        user = new User({ username, password: bcrypt.hashSync(password, 10) });
+        await user.save();
+
+        const payload = { user: { id: user.id } };
+        jwt.sign(payload, 'jwtSecret', { expiresIn: 360000 }, (err, token) => {
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Login User
+app.post('/login', [
+    check('username', 'Username is required').not().isEmpty(),
+    check('password', 'Password is required').not().isEmpty(),
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { username, password } = req.body;
+    try {
+        let user = await User.findOne({ username });
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        const isMatch = bcrypt.compareSync(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        const payload = { user: { id: user.id } };
+        jwt.sign(payload, 'jwtSecret', { expiresIn: 360000 }, (err, token) => {
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Middleware to validate JWT
+const auth = (req, res, next) => {
+    const token = req.header('x-auth-token');
+    if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
+
+    try {
+        const decoded = jwt.verify(token, 'jwtSecret');
+        req.user = decoded.user;
+        next();
+    } catch (err) {
+        res.status(401).json({ msg: 'Token is not valid' });
+    }
+};
+
+// Fetch messages
+app.get('/messages', auth, async (req, res) => {
+    const messages = await Message.find().sort({ timestamp: -1 });
+    res.json(messages);
+});
+
+// Serve the static files (frontend)
+app.use(express.static(__dirname + '/public'));
+
+// Socket.IO connection
+io.on('connection', (socket) => {
+    console.log('A user connected');
+
+    socket.on('chat message', async (msg) => {
+        const newMessage = new Message({ username: socket.username, message: msg });
+        await newMessage.save();
+        io.emit('chat message', { username: socket.username, message: msg });
+    });
+
+    socket.on('user typing', (username) => {
+        socket.broadcast.emit('user typing', username);
+    });
+
+    socket.on('disconnect', () => {
+        console.log('A user disconnected');
+    });
+});
+
+// Start the server
+server.listen(3000, () => {
+    console.log('Server is running on http://localhost:3000');
+});
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Chat App</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #messages { list-style-type: none; padding: 0; }
+        #messages li { padding: 8px; margin-bottom: 4px; background-color: #f1f1f1; border-radius: 4px; }
+        #form { display: flex; }
+        #input { flex: 1; padding: 10px; }
+        #button { padding: 10px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div id="auth">
+        <h2>Login</h2>
+        <form id="login-form">
+            <input type="text" id="username" placeholder="Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button type="submit">Login</button>
+        </form>
+        <h2>Register</h2>
+        <form id="register-form">
+            <input type="text" id="reg-username" placeholder="Username" required>
+            <input type="password" id="reg-password" placeholder="Password" required>
+            <button type="submit">Register</button>
+        </form>
+    </div>
+    <ul id="messages" class="hidden"></ul>
+    <form id="form" action="" class="hidden">
+        <input id="input" autocomplete="off" placeholder="Type a message..." /><button id="button">Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        const authDiv = document.getElementById('auth');
+        const messagesDiv = document.getElementById('messages');
+        const formDiv = document.getElementById('form');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const input = document.getElementById('input');
+        let token;
+
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('reg-username').value;
+            const password = document.getElementById('reg-password').value;
+            const response = await fetch('/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
+            const data = await response.json();
+            if (data.token) {
+                token = data.token;
+                loadChat();
+            }
+        });
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const response = await fetch('/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
+            const data = await response.json();
+            if (data.token) {
+                token = data.token;
+                loadChat();
+            }
+        });
+
+        async function loadChat() {
+            authDiv.classList.add('hidden');
+            messagesDiv.classList.remove('hidden');
+            formDiv.classList.remove('hidden');
+
+            const response = await fetch('/messages', {
+                headers: { 'x-auth-token': token },
+            });
+            const messages = await response.json();
+            messages.reverse().forEach(msg => appendMessage(msg.username + ': ' + msg.message));
+
+            formDiv.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (input.value) {
+                    socket.emit('chat message', input.value);
+                    input.value = '';
+                }
+            });
+
+            socket.on('chat message', function(msg) {
+                appendMessage(msg.username + ': ' + msg.message);
+            });
+
+            socket.on('user typing', function(username) {
+                console.log(username + ' is typing...');
+            });
+
+            input.addEventListener('input', () => {
+                socket.emit('user typing', 'Username');
+            });
+        }
+
+        function appendMessage(message) {
+            const item = document.createElement('li');
+            item.textContent = message;
+            messagesDiv.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+    </script>
+</body>
+</html>
