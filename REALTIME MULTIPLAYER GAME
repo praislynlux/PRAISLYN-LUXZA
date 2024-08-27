@@ -1,0 +1,131 @@
+mkdir real-time-multiplayer-game
+cd real-time-multiplayer-game
+npm init -y
+npm install express socket.io
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// Serve static files (frontend)
+app.use(express.static(__dirname + '/public'));
+
+// Store player positions
+let players = {};
+
+// Socket.IO connection
+io.on('connection', (socket) => {
+    console.log(`Player connected: ${socket.id}`);
+
+    // Initialize new player
+    players[socket.id] = {
+        x: Math.floor(Math.random() * 500),
+        y: Math.floor(Math.random() * 500),
+    };
+
+    // Send initial player state
+    socket.emit('currentPlayers', players);
+    socket.broadcast.emit('newPlayer', {
+        id: socket.id,
+        x: players[socket.id].x,
+        y: players[socket.id].y,
+    });
+
+    // Update player position
+    socket.on('playerMovement', (movementData) => {
+        if (players[socket.id]) {
+            players[socket.id].x += movementData.x;
+            players[socket.id].y += movementData.y;
+            io.emit('playerMoved', {
+                id: socket.id,
+                x: players[socket.id].x,
+                y: players[socket.id].y,
+            });
+        }
+    });
+
+    // Handle player disconnect
+    socket.on('disconnect', () => {
+        console.log(`Player disconnected: ${socket.id}`);
+        delete players[socket.id];
+        io.emit('playerDisconnected', socket.id);
+    });
+});
+
+// Start the server
+server.listen(3000, () => {
+    console.log('Server is running on http://localhost:3000');
+});
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Multiplayer Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; background-color: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const context = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const playerSize = 20;
+        const players = {};
+
+        // Draw the players on the canvas
+        function drawPlayers() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            for (let id in players) {
+                context.fillRect(players[id].x, players[id].y, playerSize, playerSize);
+            }
+        }
+
+        // Update the game state
+        socket.on('currentPlayers', function(currentPlayers) {
+            for (let id in currentPlayers) {
+                players[id] = currentPlayers[id];
+            }
+            drawPlayers();
+        });
+
+        socket.on('newPlayer', function(playerInfo) {
+            players[playerInfo.id] = playerInfo;
+            drawPlayers();
+        });
+
+        socket.on('playerMoved', function(playerInfo) {
+            players[playerInfo.id].x = playerInfo.x;
+            players[playerInfo.id].y = playerInfo.y;
+            drawPlayers();
+        });
+
+        socket.on('playerDisconnected', function(playerId) {
+            delete players[playerId];
+            drawPlayers();
+        });
+
+        // Handle player movement
+        window.addEventListener('keydown', function(event) {
+            let movement = { x: 0, y: 0 };
+            if (event.key === 'ArrowUp') movement.y = -5;
+            if (event.key === 'ArrowDown') movement.y = 5;
+            if (event.key === 'ArrowLeft') movement.x = -5;
+            if (event.key === 'ArrowRight') movement.x = 5;
+            socket.emit('playerMovement', movement);
+        });
+    </script>
+</body>
+</html>
+
