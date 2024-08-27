@@ -1,0 +1,85 @@
+Initialize a Node.js Project
+
+bash
+
+mkdir real-time-financial-dashboard
+cd real-time-financial-dashboard
+npm init -y
+npm install express socket.io
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const axios = require('axios');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// Serve static files (frontend)
+app.use(express.static(__dirname + '/public'));
+
+// Simulate real-time financial data (In production, replace this with actual data sources)
+const getFinancialData = () => {
+    return {
+        time: new Date().toLocaleTimeString(),
+        stockA: (Math.random() * 1000).toFixed(2),
+        stockB: (Math.random() * 500).toFixed(2),
+        stockC: (Math.random() * 200).toFixed(2),
+    };
+};
+
+// Emit financial data to all connected clients every 5 seconds
+setInterval(() => {
+    const data = getFinancialData();
+    io.emit('financial data', data);
+}, 5000);
+
+// Start the server
+server.listen(3000, () => {
+    console.log('Server is running on http://localhost:3000');
+});
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Financial Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f4; }
+        h1 { text-align: center; }
+        .dashboard { display: flex; justify-content: space-around; padding: 20px; }
+        .widget { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); width: 150px; text-align: center; }
+        .widget h2 { margin: 0 0 10px; }
+        .widget p { font-size: 1.5rem; margin: 0; }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Financial Dashboard</h1>
+    <div class="dashboard">
+        <div class="widget">
+            <h2>Stock A</h2>
+            <p id="stockA">--</p>
+        </div>
+        <div class="widget">
+            <h2>Stock B</h2>
+            <p id="stockB">--</p>
+        </div>
+        <div class="widget">
+            <h2>Stock C</h2>
+            <p id="stockC">--</p>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // Listen for financial data updates
+        socket.on('financial data', function(data) {
+            document.getElementById('stockA').innerText = `$${data.stockA}`;
+            document.getElementById('stockB').innerText = `$${data.stockB}`;
+            document.getElementById('stockC').innerText = `$${data.stockC}`;
+        });
+    </script>
+</body>
+</html>
