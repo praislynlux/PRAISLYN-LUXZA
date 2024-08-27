@@ -1,0 +1,106 @@
+Initialize a Node.js Project
+
+bash
+
+mkdir live-sport-scoreboard
+cd live-sport-scoreboard
+npm init -y
+npm install express socket.io
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// Serve static files (frontend)
+app.use(express.static(__dirname + '/public'));
+
+// Store scores in memory (you can extend this to a database)
+let scores = {
+    teamA: 0,
+    teamB: 0,
+};
+
+// Socket.IO connection
+io.on('connection', (socket) => {
+    console.log('A user connected');
+
+    // Send current scores to the newly connected client
+    socket.emit('score update', scores);
+
+    // Listen for score updates
+    socket.on('update score', (data) => {
+        scores = data;
+        io.emit('score update', scores);
+    });
+
+    socket.on('disconnect', () => {
+        console.log('A user disconnected');
+    });
+});
+
+// Start the server
+server.listen(3000, () => {
+    console.log('Server is running on http://localhost:3000');
+});
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Sport Scoreboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        #scoreboard { display: flex; justify-content: space-around; font-size: 2rem; }
+        .team { width: 100px; }
+        #controls { margin-top: 20px; }
+        button { padding: 10px; font-size: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>Live Sport Scoreboard</h1>
+    <div id="scoreboard">
+        <div class="team">
+            <h2>Team A</h2>
+            <p id="teamA-score">0</p>
+        </div>
+        <div class="team">
+            <h2>Team B</h2>
+            <p id="teamB-score">0</p>
+        </div>
+    </div>
+    <div id="controls">
+        <button onclick="updateScore('teamA', 1)">Team A +1</button>
+        <button onclick="updateScore('teamB', 1)">Team B +1</button>
+        <button onclick="updateScore('teamA', -1)">Team A -1</button>
+        <button onclick="updateScore('teamB', -1)">Team B -1</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // Update the scoreboard with new data
+        socket.on('score update', function(scores) {
+            document.getElementById('teamA-score').innerText = scores.teamA;
+            document.getElementById('teamB-score').innerText = scores.teamB;
+        });
+
+        // Function to send score updates
+        function updateScore(team, change) {
+            const teamAScore = parseInt(document.getElementById('teamA-score').innerText);
+            const teamBScore = parseInt(document.getElementById('teamB-score').innerText);
+
+            const newScores = {
+                teamA: team === 'teamA' ? teamAScore + change : teamAScore,
+                teamB: team === 'teamB' ? teamBScore + change : teamBScore,
+            };
+
+            socket.emit('update score', newScores);
+        }
+    </script>
+</body>
+</html>
+
