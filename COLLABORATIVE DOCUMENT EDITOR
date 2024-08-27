@@ -1,0 +1,75 @@
+Initialize a Node.js Project
+
+bash
+
+mkdir collaborative-editor
+cd collaborative-editor
+npm init -y
+npm install express socket.io
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// Serve static files (frontend)
+app.use(express.static(__dirname + '/public'));
+
+// Store the document content in memory
+let documentContent = '';
+
+// Socket.IO connection
+io.on('connection', (socket) => {
+    console.log('A user connected');
+
+    // Send the current document content to the newly connected client
+    socket.emit('document update', documentContent);
+
+    // Listen for document changes
+    socket.on('edit document', (newContent) => {
+        documentContent = newContent;
+        io.emit('document update', documentContent);
+    });
+
+    socket.on('disconnect', () => {
+        console.log('A user disconnected');
+    });
+});
+
+// Start the server
+server.listen(3000, () => {
+    console.log('Server is running on http://localhost:3000');
+});
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaborative Document Editor</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        #editor { width: 100%; height: 100vh; padding: 20px; box-sizing: border-box; font-size: 16px; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <textarea id="editor" placeholder="Start typing..."></textarea>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const editor = document.getElementById('editor');
+
+        // Listen for incoming document updates
+        socket.on('document update', function(content) {
+            editor.value = content;
+        });
+
+        // Send document updates as the user types
+        editor.addEventListener('input', function() {
+            socket.emit('edit document', editor.value);
+        });
+    </script>
+</body>
+</html>
